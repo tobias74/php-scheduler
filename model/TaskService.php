@@ -86,7 +86,65 @@ class TaskService
     $this->collection->remove(array('url'=>$url, 'queueName' =>$queueName), array('justOne'=>true));
   }
 
-  
+  public function resetQueue($queueName)
+  {
+      $redis = new \Predis\Client();
+      $redis->set('Scheduler_Queue_'.$queueName, 0);
+  }
+
+  public function executeNextSingleShot($queueName, $maxParallel, $force)
+  {
+    $redis = new \Predis\Client();
+    
+    $lastExecution = $redis->get('Scheduler_Queue_'.$queueName.'_Last_Execution');
+    if (($lastExecution + 3600*4) < time())
+    {
+      $redis->set('Scheduler_Queue_'.$queueName, 0);
+    }
+    
+    //if (exec('ps -A | grep avconv') == '')
+    //{
+    //  $redis->set('Zeitfaden_CronJob_Running', 'reset. did not find avconv process.');
+    //}
+
+    $currentParallel = $redis->get('Scheduler_Queue_'.$queueName);
+    
+        
+    if (( $currentParallel < $maxParallel) || ( $force === 'true'))
+    {
+      $counter = $redis->get('Scheduler_Queue_'.$queueName);
+      $counter++;
+      $redis->set('Scheduler_Queue_'.$queueName, $counter);
+
+      $redis->set('Scheduler_Queue_'.$queueName.'_Last_Execution',time());
+
+      
+      if ($this->hasNextSingleShot($queueName))
+      {
+        $url = $this->nextSingleShot($queueName);
+        error_log('now lynxing '.$url);
+        exec("lynx -dump ".$url);
+        error_log('done lynxing.');
+        $this->completeSingleShot($queueName,$url);
+      }
+      else 
+      {
+        error_log('nothing to do');  
+      }
+
+
+      $counter = $redis->get('Scheduler_Queue_'.$queueName);
+      $counter--;
+      $redis->set('Scheduler_Queue_'.$queueName, $counter);
+
+    }
+    else
+    {
+      error_log('scheduler busy.');
+    }
+    
+  }
+
 }
 
 
